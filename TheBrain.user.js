@@ -1,7 +1,11 @@
 // ==UserScript==
 // @name         The Brain Portfolio Advisor
 // @namespace    wes-stock-portfolio-advisor
-// @version      5.1.0
+// @updateURL   https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
+// @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
+// @homepageURL https://github.com/hawkmanw/The-Brain
+// @supportURL  https://github.com/hawkmanw/The-Brain/issues
+// @version      5.1.1
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
