@@ -2,7 +2,7 @@
 // @name         The Brain Portfolio Advisor
 // @namespace    wes-stock-portfolio-advisor
 // @version      5.1.0
-// @description  Deterministic, evidence-driven Torn stock portfolio optimizer with dynamic strategic-sale controls and no arbitrary reward-block limits.
+// @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
 // @match        https://www.torn.com/*
