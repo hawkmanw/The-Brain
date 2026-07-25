@@ -1,8 +1,10 @@
 # The Brain
+Created and maintained by Wesley Hawks
 
+Development assistance, architecture discussions, testing, and documentation were provided by ChatGPT (OpenAI).
 > **A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.**
 
-The Brain analyzes your current holdings, identifies mathematically beneficial opportunities, explains its reasoning, and respects uncertainty rather than hiding it.
+The Brain analyzes your current holdings, identifies mathematically optimal opportunities, explains its reasoning, and respects uncertainty rather than hiding it.
 
 ---
 
