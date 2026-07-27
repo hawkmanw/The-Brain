@@ -224,11 +224,7 @@
         // Therefore the expected dividend value is the
         // arithmetic mean of all 13 property values
         // ($45,456,019.23).
-        HRG: {
-            required: 10000000, rewardType: 'cash',
-            cashAmount: 45456019.23, days: 31, description: 'One random property',
-        },
-
+        HRG: { required: 10000000, rewardType: 'cash', cashAmount: 45456019.23, days: 31, description: 'One random property', },
         IIL: { required: 1000000, rewardType: 'benefit', description: '50% Coding Time Reduction' },
         ELT: { name: 'Empty Lunchbox Traders', required: 5000000, rewardType: 'benefit', description: '10% Home Upgrade Discount' },
         EVL: { name: 'Evil Ducks Candy Corp', required: 100000, rewardType: 'benefit', description: '1000 Happiness every 7 days' },
