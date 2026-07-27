@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      5.1.2
+// @version      5.1.3
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -209,7 +209,7 @@
         // PTS pays 100 points every seven days. The value is derived from the live
         // Points Market using a quantity-weighted average of the listings Torn returns.
         PTS: { required: 10000000, rewardType: 'market', marketSource: 'points', rewardAmount: 100, description: '100 Points', days: 7 },
-        HRG: { required: 10000000, rewardType: 'market', description: 'One random property', days: 31 },
+
         TCC: { required: 7500000, rewardType: 'special', description: 'Random Clothing Cache' },
 
         GRN: { required: 500000, rewardType: 'cash', cashAmount: 4000000, days: 31, description: 'Cash dividend' },
@@ -218,6 +218,16 @@
         TCT: { required: 100000, rewardType: 'cash', cashAmount: 1000000, days: 31, description: 'Cash dividend' },
         TSB: { required: 3000000, rewardType: 'cash', cashAmount: 50000000, days: 31, description: 'Cash dividend' },
         CNC: { required: 7500000, rewardType: 'cash', cashAmount: 80000000, days: 31, description: 'Cash dividend' },
+        // HRG awards one random property every 31 days.
+        // Torn documents each property from Trailer through
+        // Private Island as having an equal probability (1/13).
+        // Therefore the expected dividend value is the
+        // arithmetic mean of all 13 property values
+        // ($45,456,019.23).
+        HRG: {
+            required: 10000000, rewardType: 'cash',
+            cashAmount: 45456019.23, days: 31, description: 'One random property',
+        },
 
         IIL: { required: 1000000, rewardType: 'benefit', description: '50% Coding Time Reduction' },
         ELT: { name: 'Empty Lunchbox Traders', required: 5000000, rewardType: 'benefit', description: '10% Home Upgrade Discount' },
