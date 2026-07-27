@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      5.1.1
+// @version      5.1.2
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -209,7 +209,7 @@
         // PTS pays 100 points every seven days. The value is derived from the live
         // Points Market using a quantity-weighted average of the listings Torn returns.
         PTS: { required: 10000000, rewardType: 'market', marketSource: 'points', rewardAmount: 100, description: '100 Points', days: 7 },
-        HRG: { required: 10000000, rewardType: 'market', description: 'Medical item reward', days: 31 },
+        HRG: { required: 10000000, rewardType: 'market', description: 'One random property', days: 31 },
         TCC: { required: 7500000, rewardType: 'special', description: 'Random Clothing Cache' },
 
         GRN: { required: 500000, rewardType: 'cash', cashAmount: 4000000, days: 31, description: 'Cash dividend' },
