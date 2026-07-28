@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         The Brain Portfolio Advisor
-// @namespace    wes-stock-portfolio-advisor
+// @namespace https://github.com/hawkmanw
 // @updateURL   https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
