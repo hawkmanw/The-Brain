@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      5.1.3
+// @version      6.0.0
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -153,9 +153,9 @@
     // TornPDA automatically replaces this placeholder with the user's API key.
     const PDA_API_KEY = '###PDA-APIKEY###';
     const CASH_STORAGE = 'wes_stock_roi_cash_v33';
-    const PARKING_STORAGE = 'wes_stock_cash_parking_v33';
     const STRATEGIC_SALE_STORAGE = 'wes_stock_strategic_sale_blocks_v41';
-    const MIN_EXTRA_ANNUAL_GAIN = 5000000;
+    // Torn charges a 0.1% fee on the total value of shares sold.
+    const STOCK_SALE_FEE_RATE = 0.001;
     const API_TIMEOUTS = Object.freeze({
         stocks: 10000,
         portfolio: 10000,
@@ -285,12 +285,7 @@
         return Math.max(min, Math.min(max, n));
     }
 
-    function sellPressureScore(block, bestRoi) {
-        const roiGap = Math.max(0, bestRoi - block.roi);
-        const roiPressure = clamp(roiGap / 0.15, 0, 1);
-        const weakRoiPressure = clamp((0.15 - block.roi) / 0.15, 0, 1);
-        return Math.round((roiPressure * 70) + (weakRoiPressure * 30));
-    }
+
 
     function api(url, options = {}) {
         const timeoutMs = options.timeoutMs || API_TIMEOUTS.default;
@@ -756,17 +751,6 @@
         return blocks;
     }
 
-    function getParkingSymbols() {
-        try { return JSON.parse(localStorage.getItem(PARKING_STORAGE) || '[]'); }
-        catch (e) { return []; }
-    }
-
-
-    function saveParkingSymbols() {
-        const checked = [...document.querySelectorAll('.wes-parking-check:checked')].map(x => x.value);
-        localStorage.setItem(PARKING_STORAGE, JSON.stringify(checked));
-        return checked;
-    }
 
 
     // ============================================================================
@@ -910,255 +894,316 @@
         return eligibleBlocks;
     }
 
+    function applyPurchase(portfolio, opportunity) {
 
-    function calculateParkingCapital(parkingSymbols, owned, byAcronym) {
-        let total = 0;
-        const rows = [];
+        portfolio.holdings[opportunity.acronym] =
+            opportunity.target;
 
-        parkingSymbols.forEach(acronym => {
-            const cfg = STOCKS[acronym];
-            const market = byAcronym[acronym];
-            if (!cfg || !market) return;
+        portfolio.purchases.push(opportunity);
 
-            const have = owned[acronym] || 0;
-            if (have <= 0) return;
+        portfolio.totalSpent += opportunity.cost;
 
-            const protectedCompleted = completedTarget(cfg.required, have);
-            const parkedShares = Math.max(0, have - protectedCompleted);
-            if (parkedShares <= 0) return;
+        portfolio.yearlyIncome += opportunity.yearly;
 
-            const value = parkedShares * market.price;
-            total += value;
-            rows.push({ acronym, shares: parkedShares, value });
-        });
-
-        return { total, rows };
+        portfolio.cashRemaining -= opportunity.cost;
     }
 
-    function buildShoppingList(owned, byAcronym, startingCapital, parkingSymbols, excludeSymbols) {
-        function applyPurchase(portfolio, opportunity) {
+    // ============================================================================
+    // Portfolio Constructor
+    // ----------------------------------------------------------------------------
+    // Brain constructs the mathematically optimal portfolio from a single pool of
+    // Deployable Capital.
+    //
+    // Process:
+    //
+    // 1. Sell every optimization-eligible holding (simulation only).
+    // 2. Add the proceeds to Deployable Capital.
+    // 3. Survey the market.
+    // 4. Purchase the highest-ROI completed block.
+    // 5. Reduce remaining Deployable Capital.
+    // 6. Repeat until no further purchases are possible.
+    //
+    // This engine does not compare against the user's current portfolio.
+    // Its only responsibility is constructing the ideal portfolio.
+    //
+    // Portfolio comparison and rebalance recommendations are handled separately.
+    // ============================================================================
+    function simulateLiquidation(
+        deployableCapital,
+        owned,
+        byAcronym,
+        strategicSaleLimits
+    ) {
 
-            portfolio.holdings[opportunity.acronym] =
-                opportunity.target;
+        const liquidation = {
+            totalCapital: deployableCapital,
+            liquidationValue: 0,
+            liquidatedHoldings: []
+        };
 
-            portfolio.purchases.push(opportunity);
+        Object.entries(owned).forEach(([acronym, shares]) => {
+            const metadata = getStockMetadata(acronym);
+            const isStrategic = isStrategicStock(acronym);
 
-            portfolio.totalSpent += opportunity.cost;
+            if (!isOptimizationEligible(acronym) && !isStrategic) {
+                return;
+            }
 
-            portfolio.yearlyIncome += opportunity.yearly;
+            const stock = byAcronym[acronym];
 
-            portfolio.cashRemaining -= opportunity.cost;
-        }
+            if (!stock) {
+                return;
+            }
+            let liquidatableShares = shares;
 
-        // ============================================================================
-        // Portfolio Constructor
-        // ----------------------------------------------------------------------------
-        // Brain constructs the mathematically optimal portfolio from a single pool of
-        // Deployable Capital.
-        //
-        // Process:
-        //
-        // 1. Sell every optimization-eligible holding (simulation only).
-        // 2. Add the proceeds to Deployable Capital.
-        // 3. Survey the market.
-        // 4. Purchase the highest-ROI completed block.
-        // 5. Reduce remaining Deployable Capital.
-        // 6. Repeat until no further purchases are possible.
-        //
-        // This engine does not compare against the user's current portfolio.
-        // Its only responsibility is constructing the ideal portfolio.
-        //
-        // Portfolio comparison and rebalance recommendations are handled separately.
-        // ============================================================================
-        function simulateLiquidation(
-            deployableCapital,
-            owned,
-            byAcronym
-        ) {
+            if (isStrategic) {
+                const completedShares = completedTarget(metadata.required, shares);
 
-            const liquidation = {
-                totalCapital: deployableCapital,
-                liquidationValue: 0,
-                liquidatedHoldings: []
-            };
-
-            Object.entries(owned).forEach(([acronym, shares]) => {
-                if (!isOptimizationEligible(acronym)) {
-                    return;
-                }
-
-                const stock = byAcronym[acronym];
-
-                if (!stock) {
-                    return;
-                }
-
-                const holdingValue = shares * stock.price;
-
-                liquidation.liquidationValue += holdingValue;
-
-                liquidation.totalCapital += holdingValue;
-
-                liquidation.liquidatedHoldings.push({
-                    acronym,
-                    shares,
-                    value: holdingValue
-                });
-
-            });
-
-            return liquidation;
-        }
-
-        function collectOpportunities(portfolio, byAcronym) {
-
-            const opportunities = [];
-
-            Object.entries(STOCKS).forEach(([acronym, cfg]) => {
-
-                const ownedShares = portfolio.holdings[acronym] || 0;
-
-                const opportunity = getNextOpportunity(
-                    acronym,
-                    cfg,
+                const authorizedBlocks = getEligibleStrategicSaleBlocks(
+                    { [acronym]: shares },
                     byAcronym,
-                    ownedShares
+                    strategicSaleLimits || {}
                 );
 
-                if (opportunity) {
-                    opportunities.push(opportunity);
-                }
+                const authorizedShares = authorizedBlocks.reduce(
+                    (total, block) => total + block.shares,
+                    0
+                );
+
+                const protectedShares = Math.max(0, completedShares - authorizedShares);
+                liquidatableShares = Math.max(0, shares - protectedShares);
+            }
+
+            if (liquidatableShares <= 0) {
+                return;
+            }
+            const grossValue = liquidatableShares * stock.price;
+            const fee = grossValue * STOCK_SALE_FEE_RATE;
+            const netValue = grossValue - fee;
+
+            liquidation.liquidationValue += netValue;
+
+            liquidation.totalCapital += netValue;
+
+            liquidation.liquidatedHoldings.push({
+                acronym,
+                shares: liquidatableShares,
+                grossValue,
+                fee,
+                value: netValue
             });
 
-            opportunities.sort((a, b) => {
+        });
 
-                if (b.roi !== a.roi)
-                    return b.roi - a.roi;
+        return liquidation;
+    }
 
-                return a.cost - b.cost;
+    function collectOpportunities(portfolio, byAcronym) {
+
+        const opportunities = [];
+
+        Object.entries(STOCKS).forEach(([acronym, cfg]) => {
+
+            const ownedShares = portfolio.holdings[acronym] || 0;
+            const market = byAcronym[acronym];
+
+            if (!market) {
+                return;
+            }
+
+            const opportunity = getNextOpportunity(
+                acronym,
+                cfg,
+                market,
+                ownedShares
+            );
+
+            if (opportunity && opportunity.cost <= portfolio.cashRemaining) {
+                opportunities.push(opportunity);
+            }
+        });
+
+        opportunities.sort((a, b) => {
+
+            if (b.roi !== a.roi)
+                return b.roi - a.roi;
+
+            return a.cost - b.cost;
+        });
+
+        return opportunities;
+    }
+
+    function buildNetTransactions(owned, idealHoldings, byAcronym) {
+        const transactions = {
+            sells: [],
+            buys: []
+        };
+
+        const acronyms = new Set([
+            ...Object.keys(owned),
+            ...Object.keys(idealHoldings)
+        ]);
+
+        acronyms.forEach(acronym => {
+            const actualShares = owned[acronym] || 0;
+            const targetShares = idealHoldings[acronym] || 0;
+            const difference = targetShares - actualShares;
+            const market = byAcronym[acronym];
+
+            if (!market || difference === 0) {
+                return;
+            }
+
+            if (difference < 0) {
+                const shares = Math.abs(difference);
+                const grossValue = shares * market.price;
+                const fee = grossValue * STOCK_SALE_FEE_RATE;
+
+                transactions.sells.push({
+                    acronym,
+                    shares,
+                    grossValue,
+                    fee,
+                    netValue: grossValue - fee
+                });
+
+                return;
+            }
+
+            transactions.buys.push({
+                acronym,
+                shares: difference,
+                cost: difference * market.price
             });
+        });
 
-            return opportunities;
+        return transactions;
+    }
+    function buildIdealPortfolio(startingCapital, owned, byAcronym, strategicSaleLimits) {
+
+        const portfolio = {
+            cashRemaining: startingCapital,
+            holdings: { ...owned },
+            purchases: [],
+            yearlyIncome: 0,
+            totalSpent: 0
+        };
+
+        const liquidation = simulateLiquidation(
+            startingCapital,
+            portfolio.holdings,
+            byAcronym,
+            strategicSaleLimits
+        );
+
+        portfolio.cashRemaining = liquidation.totalCapital;
+
+        liquidation.liquidatedHoldings.forEach(holding => {
+            portfolio.holdings[holding.acronym] = Math.max(
+                0,
+                (portfolio.holdings[holding.acronym] || 0) - holding.shares
+            );
+        });
+
+        let opportunities = collectOpportunities(portfolio, byAcronym);
+
+        while (true) {
+
+            const bestOpportunity = opportunities[0];
+
+            if (!bestOpportunity)
+                break;
+
+            applyPurchase(portfolio, bestOpportunity);
+
+            opportunities = collectOpportunities(portfolio, byAcronym);
+
         }
-        function buildIdealPortfolio(startingCapital, owned, byAcronym) {
 
-            const portfolio = {
-                cashRemaining: startingCapital,
-                holdings: { ...owned },
-                purchases: [],
-                yearlyIncome: 0,
-                totalSpent: 0
-            };
+        portfolio.liquidation = liquidation;
 
-            const liquidation = simulateLiquidation(
-                startingCapital,
-                portfolio.holdings,
+        return portfolio;
+    }
+
+    function buildStableIdealPortfolio(
+        startingCapital,
+        owned,
+        byAcronym,
+        strategicSaleLimits
+    ) {
+        let feeCorrection = 0;
+        let idealPortfolio = null;
+        let netTransactions = null;
+
+        for (let pass = 1; pass <= 10; pass++) {
+            idealPortfolio = buildIdealPortfolio(
+                startingCapital + feeCorrection,
+                owned,
+                byAcronym,
+                strategicSaleLimits
+            );
+
+            netTransactions = buildNetTransactions(
+                owned,
+                idealPortfolio.holdings,
                 byAcronym
             );
 
-            portfolio.cashRemaining = liquidation.totalCapital;
+            const provisionalSaleFees =
+                idealPortfolio.liquidation.liquidatedHoldings.reduce(
+                    (total, holding) => total + holding.fee,
+                    0
+                );
 
-            let opportunities = collectOpportunities(portfolio, byAcronym);
+            const netSaleFees = netTransactions.sells.reduce(
+                (total, transaction) => total + transaction.fee,
+                0
+            );
 
-            while (true) {
+            const nextFeeCorrection = Math.max(
+                0,
+                provisionalSaleFees - netSaleFees
+            );
 
-                const bestOpportunity = opportunities[0];
-
-                if (!bestOpportunity)
-                    break;
-
-                applyPurchase(portfolio, bestOpportunity);
-
-                opportunities = collectOpportunities(portfolio, byAcronym);
-
-                if (portfolio.purchases.length >= 5) {
-                    break;
-                }
-
+            if (Math.abs(nextFeeCorrection - feeCorrection) < 0.01) {
+                return {
+                    idealPortfolio,
+                    netTransactions,
+                    feeCorrection: nextFeeCorrection,
+                    passes: pass
+                };
             }
 
-            return portfolio;
-        }
-        let capital = startingCapital;
-        let simulatedOwned = Object.assign({}, owned);
-        const parkingSet = new Set(parkingSymbols || []);
-        const excludeSet = new Set(excludeSymbols || []);
-        const buys = [];
-        let totalCost = 0;
-        let totalYearly = 0;
-
-        for (let step = 1; step <= 10; step++) {
-            const candidates = [];
-
-            Object.entries(STOCKS).forEach(([acronym, cfg]) => {
-
-
-                if (excludeSet.has(acronym)) return;
-
-                const market = byAcronym[acronym];
-                if (!market) return;
-
-                const have = simulatedOwned[acronym] || 0;
-                const next = getNextOpportunity(acronym, cfg, market, have);
-                if (!next) return;
-
-                if (next.cost <= capital) candidates.push(next);
-            });
-
-            if (!candidates.length) break;
-
-            candidates.sort((a, b) => {
-                if (b.roi !== a.roi) return b.roi - a.roi;
-                return a.cost - b.cost;
-            });
-
-            const pick = candidates[0];
-
-            buys.push({
-                step,
-                acronym: pick.acronym,
-                name: pick.name,
-                increment: pick.increment,
-                need: pick.need,
-                cost: pick.cost,
-                yearly: pick.yearly,
-                roi: pick.roi,
-                payback: pick.payback,
-                capitalAfter: capital - pick.cost
-            });
-
-            capital -= pick.cost;
-            totalCost += pick.cost;
-            totalYearly += pick.yearly;
-            simulatedOwned[pick.acronym] = pick.target;
+            feeCorrection = nextFeeCorrection;
         }
 
         return {
-            buys,
-            startingCapital,
-            remainingCapital: capital,
-            totalCost,
-            totalYearly,
-            utilization: startingCapital > 0 ? totalCost / startingCapital : 0
+            idealPortfolio,
+            netTransactions,
+            feeCorrection,
+            passes: 10
         };
     }
+
+
 
     /*
   ==========================================================
   What If? - Design Philosophy
   ==========================================================
-
+ 
   Purpose
-
+ 
   Allow the user to safely explore alternative portfolio
   decisions before committing real capital.
-
+ 
   Question Answered
-
+ 
   "What happens if I choose to sell these completed blocks?"
-
+ 
   Design Principles
-
+ 
   • Simulation is exploration, not recommendation.
   • The advisor recommends.
   • The user explores.
@@ -1171,56 +1216,7 @@
   • Every scenario should be explainable.
   */
 
-    function createScenarioPortfolio(
-        owned,
-        completedBlocks,
-        deployableCapital,
-        scenarioActions
-    ) {
 
-        const simulatedOwned = { ...owned };
-        const simulatedCompletedBlocks = [...completedBlocks];
-        const sellActions = scenarioActions.filter(
-            action => action.type === 'sell'
-        );
-        let simulatedDeployableCapital = deployableCapital;
-
-        sellActions.forEach(action => {
-            const targetBlock = simulatedCompletedBlocks.find(
-                b =>
-                    b.acronym === action.acronym &&
-                    b.increment === action.increment
-            );
-
-            if (!targetBlock) return;
-
-            simulatedDeployableCapital += action.capitalFreed || 0;
-
-            targetBlock.shares -= action.shares || 0;
-
-            if (simulatedOwned[action.acronym] != null) {
-                simulatedOwned[action.acronym] = Math.max(
-                    0,
-                    simulatedOwned[action.acronym] - (action.shares || 0)
-                );
-            }
-
-            if (targetBlock.shares <= 0) {
-                const removeIndex = simulatedCompletedBlocks.indexOf(targetBlock);
-                if (removeIndex !== -1) {
-                    simulatedCompletedBlocks.splice(removeIndex, 1);
-                }
-            }
-        });
-
-        return {
-            owned: simulatedOwned,
-            completedBlocks: simulatedCompletedBlocks,
-            deployableCapital: simulatedDeployableCapital,
-            sellActions
-        };
-
-    }
 
     function getScenarioCapitalFreed(scenario) {
         const sellActions = scenario?.sellActions || [];
@@ -1246,142 +1242,6 @@
         return getScenarioSellCount(candidate) < getScenarioSellCount(currentBest);
     }
 
-    const IDEA_SCORE_PRESSURE_WEIGHT = 250000;
-    const IDEA_SCORE_COMPLETED_BLOCK_WEIGHT = 100;
-    const IDEA_SCORE_SELL_COUNT_PENALTY = 1000;
-    const IDEA_SCORE_WEIGHTS = {
-        pressure: IDEA_SCORE_PRESSURE_WEIGHT,
-        completedBlock: IDEA_SCORE_COMPLETED_BLOCK_WEIGHT,
-        sellCountPenalty: IDEA_SCORE_SELL_COUNT_PENALTY
-    };
-
-    function calculateIdeaScore(extraVsCurrentPlan, pressure, completedBlocksRemaining, sellCount) {
-
-        const annualGainScore = extraVsCurrentPlan;
-
-        const pressureScore =
-            pressure * IDEA_SCORE_PRESSURE_WEIGHT;
-
-        const completedBlockScore =
-            completedBlocksRemaining *
-            IDEA_SCORE_COMPLETED_BLOCK_WEIGHT;
-
-        const sellPenalty =
-            sellCount *
-            IDEA_SCORE_SELL_COUNT_PENALTY;
-
-        const totalScore =
-            annualGainScore +
-            pressureScore +
-            completedBlockScore -
-            sellPenalty;
-
-        return totalScore;
-    }
-
-    function buildRebalanceIdeas(completedBlocks, owned, byAcronym, deployableCapital, parkingSymbols, baselineShopping, bestAvailableRoi) {
-        const ideas = [];
-        const nearMisses = [];
-
-
-        completedBlocks.forEach(sell => {
-
-            const simulatedOwned = Object.assign({}, owned);
-            simulatedOwned[sell.acronym] = Math.max(0, (simulatedOwned[sell.acronym] || 0) - sell.shares);
-
-            const shopping = buildShoppingList(
-                simulatedOwned,
-                byAcronym,
-                deployableCapital + sell.value,
-                parkingSymbols,
-                [sell.acronym]
-            );
-
-            if (!shopping.buys.length) return;
-
-            const netAnnualAfterSale = shopping.totalYearly - sell.yearly;
-            const roiGap = Math.max(0, bestAvailableRoi - sell.roi);
-            const extraVsCurrentPlan = netAnnualAfterSale - (baselineShopping ? baselineShopping.totalYearly : 0);
-            const pressure = sellPressureScore(sell, bestAvailableRoi);
-            if (extraVsCurrentPlan < MIN_EXTRA_ANNUAL_GAIN) {
-                nearMisses.push({
-                    sell,
-                    shopping,
-                    buy: shopping.buys[0] || null,
-                    netAnnualAfterSale,
-                    roiGap,
-                    pressure,
-                    extraVsCurrentPlan,
-                    shortfall: MIN_EXTRA_ANNUAL_GAIN - extraVsCurrentPlan,
-                    capitalAfter: shopping.remainingCapital,
-                    score: extraVsCurrentPlan + (pressure * 250000)
-                });
-                return;
-            }
-            const scenario = createScenarioPortfolio(
-                owned,
-                completedBlocks,
-                deployableCapital,
-                [{
-                    type: 'sell',
-                    acronym: sell.acronym,
-                    increment: sell.increment,
-                    shares: sell.shares,
-                    capitalFreed: sell.value
-                }]
-            );
-            const capitalFreed = getScenarioCapitalFreed(scenario);
-            const sellCount = getScenarioSellCount(scenario);
-            const scenarioDeployableCapital = scenario.deployableCapital;
-            const completedBlocksRemaining = scenario.completedBlocks.length;
-            ideas.push({
-                sell,
-                shopping,
-                netAnnualAfterSale,
-                roiGap,
-                pressure,
-                extraVsCurrentPlan,
-                capitalAfter: shopping.remainingCapital,
-                scenario,
-                capitalFreed,
-                sellCount,
-                deployableCapital: scenarioDeployableCapital,
-                completedBlocksRemaining,
-                score: calculateIdeaScore(extraVsCurrentPlan, pressure, completedBlocksRemaining, sellCount)
-            })
-        });
-
-        nearMisses.sort((a, b) => a.shortfall - b.shortfall);
-
-        ideas.sort((a, b) => {
-
-            if (b.score !== a.score) {
-                return b.score - a.score;
-            }
-
-            if (b.completedBlocksRemaining !== a.completedBlocksRemaining) {
-                return b.completedBlocksRemaining - a.completedBlocksRemaining;
-            }
-
-            if (a.sellCount !== b.sellCount) {
-                return a.sellCount - b.sellCount;
-            }
-
-            if (b.deployableCapital !== a.deployableCapital) {
-                return b.deployableCapital - a.deployableCapital;
-            }
-
-            return b.capitalFreed - a.capitalFreed;
-        });
-
-        const runnerUp = ideas.length > 1 ? ideas[1] : null;
-
-        if (ideas.length > 0) {
-            ideas[0].runnerUp = runnerUp;
-        }
-        ideas.nearMisses = nearMisses;
-        return ideas;
-    }
 
     function card(title, body, accent) {
         return `
@@ -1392,51 +1252,7 @@
     `;
     }
 
-    function buildReasoningLines(idea) {
-        const reasons = [];
-        const runnerUp = idea.runnerUp || null;
-        const hasRunnerUp = !!runnerUp;
 
-        reasons.push({
-            type: "info",
-            text: `Annual gain: ${money(idea.netAnnualAfterSale)}`
-        });
-        if (
-            hasRunnerUp &&
-            idea.netAnnualAfterSale > runnerUp.netAnnualAfterSale
-        ) {
-            const annualDifference =
-                idea.netAnnualAfterSale -
-                runnerUp.netAnnualAfterSale;
-
-            if (annualDifference >= 1000000) {
-                reasons.push({
-                    type: "positive",
-                    text:
-                        `Earns ${money(annualDifference)} more annually than the runner-up`
-                });
-            }
-        }
-
-        if (idea.sellCount === 1) {
-            reasons.push({
-                type: "positive",
-                text: "Only one completed block sold"
-            });
-        } else if (idea.sellCount > 1) {
-            reasons.push({
-                type: "info",
-                text: `${idea.sellCount} completed blocks sold`
-            });
-        }
-
-        reasons.push({
-            type: "info",
-            text: `${idea.completedBlocksRemaining} completed blocks remain`
-        });
-
-        return reasons;
-    }
     function out(html) {
         const el = document.getElementById('wes-stock-output');
         if (el) el.innerHTML = html;
@@ -1595,7 +1411,7 @@
             localStorage.setItem(KEY_STORAGE, manualKey);
         }
         localStorage.setItem(CASH_STORAGE, String(liquidCash));
-        const parkingSymbols = saveParkingSymbols();
+
         const strategicSaleLimits = saveStrategicSaleLimits();
 
         activeThinkingStage = -1;
@@ -1639,12 +1455,19 @@
             ];
 
             setAnalysisProgress('Validating the evidence...', 4);
+
             const { byAcronym, idToAcronym } = normalizeMarketStocks(marketRaw.stocks || {});
             const owned = normalizeOwnedShares(userRaw.stocks || {}, idToAcronym);
             refreshStrategicSaleControls(owned);
 
-            const parking = calculateParkingCapital(Object.keys(STOCKS), owned, byAcronym);
-            const preliminaryCapital = liquidCash + parking.total;
+            const preliminaryLiquidation = simulateLiquidation(
+                liquidCash,
+                owned,
+                byAcronym,
+                strategicSaleLimits
+            );
+
+            const preliminaryCapital = preliminaryLiquidation.totalCapital;
 
             // An unavailable valuation is material only when it could affect today's action:
             // the player owns a completed block, or the next block is currently affordable.
@@ -1661,8 +1484,6 @@
                 return ownsCompletedBlock || nextCost <= preliminaryCapital;
             });
 
-            const nonMaterialUnavailableValues = rewardValueReport.unavailable
-                .filter(entry => !materialUnavailableValues.some(material => material.acronym === entry.acronym));
 
             if (materialUnavailableValues.length) {
                 renderUnavailableData(materialUnavailableValues);
@@ -1671,9 +1492,7 @@
             }
 
             setAnalysisProgress('Evaluating opportunities...', 5);
-            const deployableCapital = liquidCash + parking.total;
-            const parkingSet = new Set(parkingSymbols);
-
+            const deployableCapital = preliminaryCapital;
             const opportunities = [];
             const completedBlocks = [];
 
@@ -1683,54 +1502,99 @@
 
                 const have = owned[acronym] || 0;
                 const next = getNextOpportunity(acronym, cfg, market, have);
-
-                if (next && !parkingSet.has(acronym)) opportunities.push(next);
+                if (next) opportunities.push(next);
                 completedBlocks.push(...getCompletedBlocks(acronym, cfg, market, have));
             });
 
             opportunities.sort((a, b) => b.roi - a.roi);
             completedBlocks.sort((a, b) => a.roi - b.roi);
+            const currentObjectiveAnnualIncome = completedBlocks.reduce(
+                (total, block) => total + block.yearly,
+                0
+            );
 
-            const eligibleStrategicBlocks = getEligibleStrategicSaleBlocks(
+
+
+            const stableIdeal = buildStableIdealPortfolio(
+                liquidCash,
                 owned,
                 byAcronym,
                 strategicSaleLimits
             );
 
-            const rebalanceCandidates = [
-                ...completedBlocks,
-                ...eligibleStrategicBlocks
-            ].sort((a, b) => a.roi - b.roi);
+            console.log('The Brain — Stable Ideal Test', {
+                passes: stableIdeal.passes,
+                feeCorrection: stableIdeal.feeCorrection,
+                purchases: stableIdeal.idealPortfolio.purchases.length,
+                yearlyIncome: stableIdeal.idealPortfolio.yearlyIncome,
+                cashRemaining: stableIdeal.idealPortfolio.cashRemaining,
+                sells: stableIdeal.netTransactions.sells.length,
+                buys: stableIdeal.netTransactions.buys.length
+            });
+            console.table(stableIdeal.idealPortfolio.purchases);
+            console.table(stableIdeal.netTransactions.sells);
+            console.table(stableIdeal.netTransactions.buys);
 
-            const shopping = buildShoppingList(owned, byAcronym, deployableCapital, parkingSymbols, []);
-            const bestAvailableRoi = shopping.buys.length ? shopping.buys[0].roi : 0;
+
+            const stableObjectiveAnnualIncome =
+                stableIdeal.idealPortfolio.yearlyIncome;
+
+            const stableAnnualImprovement =
+                stableObjectiveAnnualIncome - currentObjectiveAnnualIncome;
+
+            console.log('The Brain — Annual Income Audit', {
+                currentObjectiveAnnualIncome,
+                stableObjectiveAnnualIncome,
+                stableAnnualImprovement
+            });
+
+
+
+
             setAnalysisProgress('Comparing alternatives...', 6);
-            const rebalanceIdeas = buildRebalanceIdeas(rebalanceCandidates, owned, byAcronym, deployableCapital, parkingSymbols, shopping, bestAvailableRoi);
-            const closestMiss = rebalanceIdeas.nearMisses && rebalanceIdeas.nearMisses[0];
-            const bestRejectedMiss = closestMiss;
 
             const bestOverall = opportunities[0];
-            const affordable = opportunities.filter(o => o.cost <= deployableCapital).sort((a, b) => b.roi - a.roi)[0];
-            const cheapest = [...opportunities].sort((a, b) => a.cost - b.cost)[0];
+
 
             let recommendationState = BrainState.KEEP_SAVING;
             let headerAction = 'HOLD';
             let headerTarget = '';
 
-            if (rebalanceIdeas.length && rebalanceIdeas[0].shopping.buys.length) {
-                const bestHeaderRebalance = rebalanceIdeas[0];
+            const stableSells = stableIdeal.netTransactions.sells;
+            const stableBuys = stableIdeal.netTransactions.buys;
+            const stableSellText = stableSells
+                .map(sell =>
+                    `${sell.shares.toLocaleString()} ${sell.acronym}`
+                )
+                .join('; ');
 
+            const stableBuyText = stableBuys
+                .map(buy =>
+                    `${buy.shares.toLocaleString()} ${buy.acronym}`
+                )
+                .join('; ');
+
+            console.log('The Brain — Recommended Transactions', {
+                sell: stableSellText || 'None',
+                buy: stableBuyText || 'None'
+            });
+
+            if (
+                stableSells.length &&
+                stableBuys.length &&
+                stableAnnualImprovement > 0
+            ) {
                 recommendationState = BrainState.REBALANCE_RECOMMENDATION;
                 headerAction = 'REBALANCE';
-                headerTarget =
-                    `${bestHeaderRebalance.sell.acronym} → ` +
-                    `${bestHeaderRebalance.shopping.buys[0].acronym}`;
+                headerTarget = formatAcronymList(
+                    stableBuys.map(buy => buy.acronym)
+                );
 
-            } else if (shopping.buys.length) {
+            } else if (!stableSells.length && stableBuys.length) {
                 recommendationState = BrainState.BUY_RECOMMENDATION;
                 headerAction = 'BUY';
                 headerTarget = formatAcronymList(
-                    shopping.buys.map(b => b.acronym)
+                    stableBuys.map(buy => buy.acronym)
                 );
 
             } else if (bestOverall) {
@@ -1738,7 +1602,6 @@
                 headerAction = 'SAVE FOR';
                 headerTarget = bestOverall.acronym;
             }
-
             const brainDecision = {
                 state: recommendationState,
                 action: headerAction,
@@ -1752,179 +1615,81 @@
                 details: {}
             };
 
-            const portfolioValue = completedBlocks.reduce((s, b) => s + b.value, 0);
-            const portfolioYearly = completedBlocks.reduce((s, b) => s + b.yearly, 0);
-            const portfolioRoi = portfolioValue ? portfolioYearly / portfolioValue : 0;
-            const sellPressureList = completedBlocks
-                .map(b => ({
-                    ...b,
-                    pressure: sellPressureScore(b, bestAvailableRoi)
-                }))
-                .sort((a, b) => b.pressure - a.pressure);
+
             let advisorWidget = '';
-            let closestMissHtml = '';
-            let closestMissSignal = '';
-            if (closestMiss && closestMiss.shortfall <= 10000000) {
-                closestMissSignal =
-                    (
-                        closestMiss.pressure >= 30
-                            ? 'High-pressure near miss'
-                            : closestMiss.pressure >= 10
-                                ? 'Moderate-pressure near miss'
-                                : 'Low-pressure near miss'
-                    ) + ` (${closestMiss.pressure}/100)`;
-                closestMissHtml = `
-<b>${closestMiss.sell.acronym} Increment ${closestMiss.sell.increment}</b><br>
-Signal: <b style="color:${closestMiss.pressure >= 30
-                        ? '#ff7777'
-                        : closestMiss.pressure >= 10
-                            ? '#ffd36a'
-                            : '#cccccc'
-                    }">${closestMissSignal}</b><br>
-Reason: ${closestMiss.pressure >= 10
-                        ? 'This holding has both sell pressure and a near-actionable replacement path.'
-                        : 'This is close to actionable, but sell pressure is still low.'
-                    }<br>
 
-Advisor Take: ${closestMiss.pressure >= 30 && closestMiss.shortfall <= 5000000
-                        ? 'Strong watch candidate.'
-                        : closestMiss.pressure >= 10 && closestMiss.shortfall <= 5000000
-                            ? 'Monitor; may become interesting soon.'
-                            : 'Do not act yet.'
-                    }<br>
+            if (brainDecision.state === BrainState.REBALANCE_RECOMMENDATION) {
+                const totalNetSaleProceeds = stableSells.reduce(
+                    (total, sell) => total + sell.netValue,
+                    0
+                );
 
-Improvement vs current plan: <b>${money(closestMiss.extraVsCurrentPlan)}</b>/year<br>
-Status: <b>${closestMiss.shortfall <= 1000000
-                        ? 'Very close'
-                        : closestMiss.shortfall <= 5000000
-                            ? 'Worth monitoring'
-                            : 'Not currently attractive'
-                    }</b><br>
-Needed improvement: ${money(MIN_EXTRA_ANNUAL_GAIN)}/year<br>
-Shortfall: ${money(closestMiss.shortfall)}/year<br>
-
-Distance to Actionable: ${((MIN_EXTRA_ANNUAL_GAIN /
-                        (MIN_EXTRA_ANNUAL_GAIN + closestMiss.shortfall)) * 100)
-                        .toFixed(1)
-                    }%<br>
-
-Progress Score: ${Math.max(
-                        0,
-                        100 -
-                        (
-                            closestMiss.shortfall /
-                            MIN_EXTRA_ANNUAL_GAIN
-                        ) * 100
-                    ).toFixed(1)
-                    }/100<br>
-
-Action: ${closestMiss.shortfall <= 1000000
-                        ? 'Watch closely; this may become actionable soon.'
-                        : closestMiss.shortfall <= 5000000
-                            ? 'Monitor during future price/dividend changes.'
-                            : 'Informational only; not close enough to act on.'
-                    }<br>
-
-Additional improvement needed: <b>${money(closestMiss.shortfall)}</b>/year<br>
-Sell Pressure: <b>${closestMiss.pressure}/100</b><br>
-ROI sold: ${pct(closestMiss.sell.roi)}<br>
-ROI gap vs best buy: ${pct(closestMiss.roiGap)}
-`;
-            } else {
-                closestMissHtml = bestRejectedMiss ? `
-<span style="color:#aaa;">No actionable near-miss currently detected.</span><br>
-
-Portfolio Status: <b>${bestRejectedMiss.extraVsCurrentPlan < 0
-                        ? 'Excellent'
-                        : bestRejectedMiss.shortfall <= 5000000
-                            ? 'Good — monitor'
-                            : 'Stable'
-                    }</b><br>
-
-<small style="color:#888;">
-
-
-${bestRejectedMiss.buy ? `
-Rejected trade path:<br>
-Sell: <b>${bestRejectedMiss.sell.acronym} Increment ${bestRejectedMiss.sell.increment}</b><br>
-Buy: <b>${bestRejectedMiss.buy.acronym} Increment ${bestRejectedMiss.buy.increment}</b><br>
-` : ''}
-
-<br>
-Capital released: <b>${money(bestRejectedMiss.sell.value)}</b><br>
-Capital invested: <b>${money(bestRejectedMiss.shopping.totalCost)}</b><br>
-Capital left after rejected path: <b>${money(bestRejectedMiss.capitalAfter)}</b><br>
-${bestRejectedMiss.extraVsCurrentPlan >= 0
-                        ? `Potential improvement: <b>${money(bestRejectedMiss.extraVsCurrentPlan)}</b>/year<br>`
-                        : `Would reduce annual income by: <b>${money(Math.abs(bestRejectedMiss.extraVsCurrentPlan))}</b>/year<br>`
-                    }
-Required improvement: ${money(MIN_EXTRA_ANNUAL_GAIN)}/year<br>
-Shortfall: <b>${money(bestRejectedMiss.shortfall)}</b>/year<br>
-Reason rejected: below the action threshold.
-</small>
-` : '<span style="color:#aaa;">No actionable near-miss currently detected.</span><br><small style="color:#888;">No completed-block sale improved the current shopping plan. Continue monitoring Sell Pressure candidates and future stock purchases.</small>';
-            }
-
-            if (rebalanceIdeas.length) {
-                const best = rebalanceIdeas[0];
+                const totalBuyCost = stableBuys.reduce(
+                    (total, buy) => total + buy.cost,
+                    0
+                );
 
                 advisorWidget = `
         <div>
-
             <div style="
-    font-size:15px;
-    color:#d8d8d8;
-    line-height:1.5;
-    margin:6px 0 10px 0;
-">
-       ${brainDecision.summary}
-</div>
+                font-size:15px;
+                color:#d8d8d8;
+                line-height:1.5;
+                margin:6px 0 10px 0;
+            ">
+                Sell <b>${stableSellText}</b><br>
+                Buy <b>${stableBuyText}</b>
+            </div>
 
-<details style="margin-top:6px;">
+            <details style="margin-top:6px;">
                 <summary>Why?</summary>
 
                 <div>
+                    Net proceeds from sales:
+                    <b>${money(totalNetSaleProceeds)}</b><br>
 
-                Cash from sale:
-                    <b>${money(best.sell.value)}</b><br>
+                    Purchase cost:
+                    <b>${money(totalBuyCost)}</b><br>
 
-                    Dividend given up:
-                    <b>${money(best.sell.yearly)}</b>/year<br>
-
-                    Net annual improvement:
-                    <b>${money(best.extraVsCurrentPlan)}</b><br>
+                    Projected annual income:
+                    <b>${money(stableIdeal.idealPortfolio.yearlyIncome)}</b>/year<br>
 
                     Capital remaining:
-                    <b>${money(best.capitalAfter)}</b>
+                    <b>${money(stableIdeal.idealPortfolio.cashRemaining)}</b>
                 </div>
             </details>
         </div>
     `;
 
-            } else if (shopping.buys.length) {
+            } else if (brainDecision.state === BrainState.BUY_RECOMMENDATION) {
+                const totalBuyCost = stableBuys.reduce(
+                    (total, buy) => total + buy.cost,
+                    0
+                );
 
                 advisorWidget = `
         <div>
-
-
             <div style="
-    font-size:15px;
-    color:#d8d8d8;
-    line-height:1.5;
-    margin:6px 0 10px 0;
-">
-        ${brainDecision.summary}
-</div>
+                font-size:15px;
+                color:#d8d8d8;
+                line-height:1.5;
+                margin:6px 0 10px 0;
+            ">
+                Buy <b>${stableBuyText}</b>
+            </div>
 
-<details>
+            <details>
                 <summary>Why?</summary>
 
                 <div>
-                    Expected annual gain:
-                    <b>${money(shopping.totalYearly)}</b><br>
+                    Purchase cost:
+                    <b>${money(totalBuyCost)}</b><br>
+
+                    Projected annual income:
+                    <b>${money(stableIdeal.idealPortfolio.yearlyIncome)}</b>/year<br>
 
                     Capital remaining:
-                    <b>${money(shopping.remainingCapital)}</b>
+                    <b>${money(stableIdeal.idealPortfolio.cashRemaining)}</b>
                 </div>
             </details>
         </div>
@@ -1956,54 +1721,7 @@ Reason rejected: below the action threshold.
     `;
             }
 
-            const parkingHtml = parking.rows.length
-                ? parking.rows.map(p => `${p.acronym}: ${p.shares.toLocaleString()} shares = ${money(p.value)}`).join('<br>')
-                : 'No parked capital detected from selected parking stocks.';
 
-            let shoppingWidgetHtml = '';
-            if (shopping.buys.length) {
-                shoppingWidgetHtml = shopping.buys.map(b => `
-          <div style="margin:6px 0;padding:8px;border:1px solid #444;border-radius:8px;background:#121212;">
-            <b>${b.step}. ${b.acronym} Increment ${b.increment}</b><br>
-            Need: ${b.need.toLocaleString()} shares<br>
-            Cost: ${money(b.cost)}<br>
-            ROI: ${pct(b.roi)}<br>
-            Payback: ${b.payback.toFixed(2)} years<br>
-            Capital after buy: ${money(b.capitalAfter)}
-          </div>
-        `).join('');
-            } else {
-                shoppingWidgetHtml = 'No affordable shopping-list buys found.';
-            }
-
-            let rebalanceHtml = '';
-            if (rebalanceIdeas.length) {
-                rebalanceHtml = rebalanceIdeas.slice(0, 3).map((idea, i) => `
-          <div style="margin:6px 0;padding:8px;border:1px solid #444;border-radius:8px;background:#121212;">
-            <b>${i + 1}. Sell ${idea.sell.acronym} Increment ${idea.sell.increment}</b><br>
-            Value: ${money(idea.sell.value)}<br>
-            ROI sold: ${pct(idea.sell.roi)}<br>
-Sell Pressure: <b>${idea.pressure}/100</b><br>
-Pressure score bonus: ${money(idea.pressure * 250000)}<br>
-ROI gap vs best buy: ${pct(idea.roiGap)}<br>
-Annual return lost: ${money(idea.sell.yearly)}<br><br>
-            <b>Buy list:</b><br>
-            ${idea.shopping.buys.map(b => `${b.step}. ${b.acronym} Inc ${b.increment} - ${money(b.cost)} - ROI ${pct(b.roi)}`).join('<br>')}
-            <br><br>
-            Net annual gain over current plan: <b>${money(idea.extraVsCurrentPlan)}</b><br>
-Capital remaining: ${money(idea.capitalAfter)}<br><br>
-
-<b>Why this idea?</b><br>
-${buildReasoningLines(idea).map(reason => `• ${reason.text}`).join('<br>')}
-Capital freed: ${money(idea.capitalFreed)}<br>
-Completed blocks remaining: ${idea.completedBlocksRemaining}<br>
-Sell count: ${idea.sellCount}<br>
-Scenario deployable capital: ${money(idea.deployableCapital)}
-          </div>
-        `).join('');
-            } else {
-                rebalanceHtml = 'No completed-block sale improves the current shopping plan by at least ' + money(MIN_EXTRA_ANNUAL_GAIN) + ' per year.';
-            }
             let advisorMode = '🟢 KEEP SAVING';
             let advisorModeColor = '#9CBE64';
 
@@ -2098,22 +1816,6 @@ Scenario deployable capital: ${money(idea.deployableCapital)}
                     );
                     break;
             }
-            const bestRebalance = rebalanceIdeas.length ? rebalanceIdeas[0] : null;
-            const decisionTriggerHtml = bestRebalance
-                ? `
-    
-    <b>Decision Margin</b><br>
-<b>${money(bestRebalance.extraVsCurrentPlan - MIN_EXTRA_ANNUAL_GAIN)}</b>/year<br><br>
-
-This recommendation justifies changing the portfolio.
-  `
-                : `
-        
-        <b>Decision Margin</b><br>
-<b>${bestRejectedMiss ? '-' + money(bestRejectedMiss.shortfall) : 'Not applicable'}</b>/year<br><br>
-
-No alternative currently justifies changing the portfolio.
-  `;
 
             const diagnosticsHtml = apiDiagnostics.map(diagnostic =>
                 `<div>✓ ${diagnostic.label}: ${diagnostic.elapsedMs.toLocaleString()} ms</div>`
@@ -2590,15 +2292,8 @@ No alternative currently justifies changing the portfolio.
 
         injectBrainResponsiveStyles();
 
-        const savedParking = getParkingSymbols();
         const strategicSaleControls = buildStrategicSaleControls();
 
-        const parkingChecks = Object.keys(STOCKS).sort().map(acronym => `
-      <label style="display:inline-block;margin:3px 8px 3px 0;">
-        <input class="wes-parking-check" type="checkbox" value="${acronym}" ${savedParking.includes(acronym) ? 'checked' : ''}>
-        ${acronym}
-      </label>
-    `).join('');
 
 
         const box = createBrainContainer();
@@ -2637,8 +2332,8 @@ ${createBrainHeader()}
                         Supports Limited or Custom API keys.
                         Custom key permissions:
                         • User → stocks
-                        • Market → itemmarket, pointsmarket
-                        • Torn → stocks
+                        • Market → pointsmarket
+                        • Torn → stocks, items
                     </div>
                             <input id="wes-stock-cash"
                                 type="text"
@@ -2732,7 +2427,7 @@ ${createBrainHeader()}
             if (key) localStorage.setItem(KEY_STORAGE, key);
             else localStorage.removeItem(KEY_STORAGE);
             localStorage.setItem(CASH_STORAGE, cash);
-            saveParkingSymbols();
+
             saveStrategicSaleLimits();
 
             updateApiKeyGate();
