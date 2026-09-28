@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      6.0.0
+// @version      6.0.1
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -1702,11 +1702,11 @@
                     <summary>Why?</summary>
 
                 <div>
-                    Additional cash needed:
+                    Cash needed to complete target:
                     <b>${money(
                     Math.max(
                         0,
-                        bestOverall.cost - deployableCapital
+                        bestOverall.cost - liquidCash
                     )
                 )}</b><br>
 
