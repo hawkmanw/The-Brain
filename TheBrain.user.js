@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      6.0.1
+// @version      6.0.2
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -1646,16 +1646,22 @@
 
                 <div>
                     Net proceeds from sales:
-                    <b>${money(totalNetSaleProceeds)}</b><br>
+<b>${money(totalNetSaleProceeds)}</b><br>
 
-                    Purchase cost:
-                    <b>${money(totalBuyCost)}</b><br>
+Purchase cost:
+<b>${money(totalBuyCost)}</b><br>
 
-                    Projected annual income:
-                    <b>${money(stableIdeal.idealPortfolio.yearlyIncome)}</b>/year<br>
+Capital remaining:
+<b>${money(stableIdeal.idealPortfolio.cashRemaining)}</b><br><br>
 
-                    Capital remaining:
-                    <b>${money(stableIdeal.idealPortfolio.cashRemaining)}</b>
+Current annual income:
+<b>${money(currentObjectiveAnnualIncome)}</b>/year<br>
+
+Projected annual income:
+<b>${money(stableObjectiveAnnualIncome)}</b>/year<br>
+
+Annual improvement:
+<b>+${money(stableAnnualImprovement)}</b>/year
                 </div>
             </details>
         </div>
