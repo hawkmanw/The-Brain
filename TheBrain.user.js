@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      6.0.2
+// @version      6.0.3
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -1562,13 +1562,25 @@
 
             const stableSells = stableIdeal.netTransactions.sells;
             const stableBuys = stableIdeal.netTransactions.buys;
+            const purchaseOrder = new Map();
+
+            stableIdeal.idealPortfolio.purchases.forEach((purchase, index) => {
+                if (!purchaseOrder.has(purchase.acronym)) {
+                    purchaseOrder.set(purchase.acronym, index);
+                }
+            });
+
+            const orderedStableBuys = [...stableBuys].sort((a, b) =>
+                (purchaseOrder.get(a.acronym) ?? Infinity) -
+                (purchaseOrder.get(b.acronym) ?? Infinity)
+            );
             const stableSellText = stableSells
                 .map(sell =>
                     `${sell.shares.toLocaleString()} ${sell.acronym}`
                 )
                 .join('; ');
 
-            const stableBuyText = stableBuys
+            const stableBuyText = orderedStableBuys
                 .map(buy =>
                     `${buy.shares.toLocaleString()} ${buy.acronym}`
                 )
@@ -1587,14 +1599,14 @@
                 recommendationState = BrainState.REBALANCE_RECOMMENDATION;
                 headerAction = 'REBALANCE';
                 headerTarget = formatAcronymList(
-                    stableBuys.map(buy => buy.acronym)
+                    orderedStableBuys.map(buy => buy.acronym)
                 );
 
             } else if (!stableSells.length && stableBuys.length) {
                 recommendationState = BrainState.BUY_RECOMMENDATION;
                 headerAction = 'BUY';
                 headerTarget = formatAcronymList(
-                    stableBuys.map(buy => buy.acronym)
+                    orderedStableBuys.map(buy => buy.acronym)
                 );
 
             } else if (bestOverall) {
