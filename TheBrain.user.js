@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      6.0.3
+// @version      6.0.4
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -2138,7 +2138,26 @@ Annual improvement:
             #brain-settings-button {
                 font-size: 18px !important;
             }
+#brain-header {
+    height: auto !important;
+    min-height: 34px !important;
+    align-items: flex-start !important;
+    box-sizing: border-box !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+}
 
+#brain-header-content {
+    height: auto !important;
+    min-height: 0 !important;
+    white-space: normal !important;
+    line-height: 1.1 !important;
+    margin: 0 !important;
+}
+
+#brain-header > div {
+    flex-shrink: 0;
+}
             @media (max-width: 600px) and (orientation: portrait) {
                 #wes-stock-roi-box {
                     width: 100%;
