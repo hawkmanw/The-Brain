@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      6.0.4
+// @version      6.1.0
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -61,7 +61,7 @@
     • Brain optimizes portfolios—not individual stocks.
     • Every holding is evaluated.
     • No holding is presumed correct.
-    • No capital is presumed untouchable during analysis.
+    • No capital is presumed untouchable unless the player explicitly protects a Strategic Target.
     • Recommendations are evidence-driven. If sufficient objective evidence is unavailable, The Brain does not recommend.
     • Every recommendation must be explainable.
     • Every widget answers one question well.
@@ -154,6 +154,7 @@
     const PDA_API_KEY = '###PDA-APIKEY###';
     const CASH_STORAGE = 'wes_stock_roi_cash_v33';
     const STRATEGIC_SALE_STORAGE = 'wes_stock_strategic_sale_blocks_v41';
+    const STRATEGIC_TARGET_STORAGE = 'wes_stock_strategic_target_v61';
     // Torn charges a 0.1% fee on the total value of shares sold.
     const STOCK_SALE_FEE_RATE = 0.001;
     const API_TIMEOUTS = Object.freeze({
@@ -754,15 +755,58 @@
 
 
     // ============================================================================
-    // Strategic Sale Limits - Checkpoints 1 and 2
+    // Strategic Holdings
     // ----------------------------------------------------------------------------
-    // Stores how many completed blocks of each Strategic stock the player is
-    // willing to let The Brain consider selling.
+    // Strategic Target protects one player-selected benefit stock from liquidation.
     //
-    // Checkpoint 1 stores the player's limits. Checkpoint 2 converts only the
-    // newest allowed Strategic blocks into candidates for the rebalance engine.
+    // Strategic Sale Limits control how many completed blocks of other strategic
+    // benefit stocks The Brain may consider selling during optimization.
     // ============================================================================
+    function getStrategicTarget() {
+        const saved = localStorage.getItem(STRATEGIC_TARGET_STORAGE) || '';
 
+        return isStrategicStock(saved) ? saved : '';
+    }
+
+    function saveStrategicTarget() {
+        const select = document.getElementById('wes-strategic-target');
+        const target = select?.value || '';
+
+        if (target && isStrategicStock(target)) {
+            localStorage.setItem(STRATEGIC_TARGET_STORAGE, target);
+            return target;
+        }
+
+        localStorage.removeItem(STRATEGIC_TARGET_STORAGE);
+        return '';
+    }
+    function buildStrategicTargetControl() {
+        const selectedTarget = getStrategicTarget();
+
+        const options = Object.keys(STOCKS)
+            .filter(isStrategicStock)
+            .sort((a, b) => a.localeCompare(b))
+            .map(acronym => {
+                const cfg = getStockMetadata(acronym);
+                const selected = acronym === selectedTarget ? 'selected' : '';
+
+                return `
+                <option value="${acronym}" ${selected}>
+                    ${acronym} — ${cfg.description || cfg.name || acronym}
+                </option>
+            `;
+            })
+            .join('');
+
+        return `
+        <select id="wes-strategic-target"
+                aria-label="Strategic stock target"
+                style="width:280px;max-width:90%;padding:6px;">
+            <option value="">None</option>
+            ${options}
+        </select>
+    `;
+    }
     function getStrategicSaleLimits() {
         try {
             const saved = JSON.parse(
@@ -932,7 +976,8 @@
         deployableCapital,
         owned,
         byAcronym,
-        strategicSaleLimits
+        strategicSaleLimits,
+        strategicTarget = ''
     ) {
 
         const liquidation = {
@@ -956,7 +1001,12 @@
             }
             let liquidatableShares = shares;
 
-            if (isStrategic) {
+            if (acronym === strategicTarget) {
+                // Strategic Target protection:
+                // Every currently owned share is intentionally being accumulated.
+                // Do not liquidate any of it for optimization or rebalancing.
+                liquidatableShares = 0;
+            } else if (isStrategic) {
                 const completedShares = completedTarget(metadata.required, shares);
 
                 const authorizedBlocks = getEligibleStrategicSaleBlocks(
@@ -1080,7 +1130,13 @@
 
         return transactions;
     }
-    function buildIdealPortfolio(startingCapital, owned, byAcronym, strategicSaleLimits) {
+    function buildIdealPortfolio(
+        startingCapital,
+        owned,
+        byAcronym,
+        strategicSaleLimits,
+        strategicTarget = ''
+    ) {
 
         const portfolio = {
             cashRemaining: startingCapital,
@@ -1094,7 +1150,8 @@
             startingCapital,
             portfolio.holdings,
             byAcronym,
-            strategicSaleLimits
+            strategicSaleLimits,
+            strategicTarget
         );
 
         portfolio.cashRemaining = liquidation.totalCapital;
@@ -1130,7 +1187,8 @@
         startingCapital,
         owned,
         byAcronym,
-        strategicSaleLimits
+        strategicSaleLimits,
+        strategicTarget = ''
     ) {
         let feeCorrection = 0;
         let idealPortfolio = null;
@@ -1141,8 +1199,10 @@
                 startingCapital + feeCorrection,
                 owned,
                 byAcronym,
-                strategicSaleLimits
+                strategicSaleLimits,
+                strategicTarget
             );
+
 
             netTransactions = buildNetTransactions(
                 owned,
@@ -1264,7 +1324,7 @@
         if (!headerContent) return;
 
         headerContent.innerHTML = `
-<div style="font-size:22px;font-weight:bold;color:${color};line-height:1.1;">
+<div style="font-weight:bold;color:${color};line-height:1.1;">
     ${'\u{1F9E0}'} ${title}
 </div>`;
     }
@@ -1413,7 +1473,7 @@
         localStorage.setItem(CASH_STORAGE, String(liquidCash));
 
         const strategicSaleLimits = saveStrategicSaleLimits();
-
+        const strategicTarget = getStrategicTarget();
         activeThinkingStage = -1;
         setAnalysisProgress('Connecting to Torn...', 0);
         const settingsPanel =
@@ -1464,7 +1524,8 @@
                 liquidCash,
                 owned,
                 byAcronym,
-                strategicSaleLimits
+                strategicSaleLimits,
+                strategicTarget
             );
 
             const preliminaryCapital = preliminaryLiquidation.totalCapital;
@@ -1519,22 +1580,38 @@
                 liquidCash,
                 owned,
                 byAcronym,
-                strategicSaleLimits
+                strategicSaleLimits,
+                strategicTarget
             );
+            const unconstrainedSaleLimits = strategicTarget
+                ? {
+                    ...strategicSaleLimits,
+                    [strategicTarget]: Number.MAX_SAFE_INTEGER
+                }
+                : strategicSaleLimits;
 
-            console.log('The Brain — Stable Ideal Test', {
-                passes: stableIdeal.passes,
-                feeCorrection: stableIdeal.feeCorrection,
-                purchases: stableIdeal.idealPortfolio.purchases.length,
-                yearlyIncome: stableIdeal.idealPortfolio.yearlyIncome,
-                cashRemaining: stableIdeal.idealPortfolio.cashRemaining,
-                sells: stableIdeal.netTransactions.sells.length,
-                buys: stableIdeal.netTransactions.buys.length
-            });
-            console.table(stableIdeal.idealPortfolio.purchases);
-            console.table(stableIdeal.netTransactions.sells);
-            console.table(stableIdeal.netTransactions.buys);
+            const unconstrainedIdeal = strategicTarget
+                ? buildStableIdealPortfolio(
+                    liquidCash,
+                    owned,
+                    byAcronym,
+                    unconstrainedSaleLimits,
+                    ''
+                )
+                : null;
 
+            const strategicTargetShares =
+                strategicTarget
+                    ? Number(owned[strategicTarget] || 0)
+                    : 0;
+
+            const strategicTargetPrice =
+                strategicTarget
+                    ? Number(byAcronym[strategicTarget]?.price || 0)
+                    : 0;
+
+            const strategicTargetCapital =
+                strategicTargetShares * strategicTargetPrice;
 
             const stableObjectiveAnnualIncome =
                 stableIdeal.idealPortfolio.yearlyIncome;
@@ -1554,6 +1631,32 @@
             setAnalysisProgress('Comparing alternatives...', 6);
 
             const bestOverall = opportunities[0];
+            const strategicTargetMaterialCost =
+                strategicTargetCapital > 0 && bestOverall
+                    ? strategicTargetCapital * bestOverall.roi
+                    : 0;
+            const strategicTargetRealizableCost =
+                strategicTarget && unconstrainedIdeal
+                    ? Math.max(
+                        0,
+                        unconstrainedIdeal.idealPortfolio.yearlyIncome -
+                        stableIdeal.idealPortfolio.yearlyIncome
+                    )
+                    : 0;
+            const strategicTargetCostIsRealizable =
+                strategicTargetRealizableCost > 0;
+
+            const strategicTargetDisplayCost =
+                strategicTargetCostIsRealizable
+                    ? strategicTargetRealizableCost
+                    : strategicTargetMaterialCost;
+
+
+            const strategicTargetRequiredShares =
+                strategicTarget
+                    ? Number(getStockMetadata(strategicTarget)?.required || 0)
+                    : 0;
+
 
 
             let recommendationState = BrainState.KEEP_SAVING;
@@ -1629,6 +1732,53 @@
 
 
             let advisorWidget = '';
+            let strategicTargetWidget = '';
+
+            if (strategicTarget && strategicTargetShares > 0) {
+                const targetMetadata = getStockMetadata(strategicTarget);
+
+                strategicTargetWidget = `
+        <div style="
+            margin-top:10px;
+            padding:10px;
+            border:1px solid rgba(128,128,128,.35);
+            border-radius:6px;
+        ">
+            <div style="font-weight:700;margin-bottom:6px;">
+                Strategic Target — ${strategicTarget}
+            </div>
+
+            <div>
+                Progress:
+                ${strategicTargetShares.toLocaleString()}
+                /
+                ${strategicTargetRequiredShares.toLocaleString()}
+                shares
+            </div>
+
+            <div>
+                Capital currently protected:
+                ${money(strategicTargetCapital)}
+            </div>
+
+            <div>
+    ${strategicTargetCostIsRealizable
+                        ? 'Optimized annual opportunity cost:'
+                        : 'Estimated marginal opportunity cost:'}
+    ${money(strategicTargetDisplayCost)}
+</div>
+
+<div style="font-size:12px;opacity:.75;margin-top:6px;">
+    ${strategicTargetCostIsRealizable
+                        ? `Calculated by comparing the protected portfolio with Brain's optimized measurable-reward portfolio.`
+                        : `Based on the current ${bestOverall?.acronym || 'best measurable'} monetary/item-reward ROI. Protected capital is not currently sufficient to produce a different complete-block portfolio.`
+                    }
+    ${targetMetadata?.description || strategicTarget}
+    is not assigned a monetary value.
+</div>
+        </div>
+    `;
+            }
 
             if (brainDecision.state === BrainState.REBALANCE_RECOMMENDATION) {
                 const totalNetSaleProceeds = stableSells.reduce(
@@ -1852,6 +2002,7 @@ Annual improvement:
 
             let html = `
     ${advisorWidget}
+    ${strategicTargetWidget}
     ${firstScanNoticeHtml(owned)}
     <details style="margin-top:10px;">
         <summary>Evidence & diagnostics</summary>
@@ -1963,7 +2114,6 @@ Annual improvement:
             if (headerContent) {
                 headerContent.innerHTML = `
 <div style="
-    font-size:22px;
     font-weight:bold;
     color:${adviceColor};
     line-height:1.1;
@@ -2109,7 +2259,7 @@ Annual improvement:
         const style = document.createElement('style');
         style.id = 'brain-responsive-styles';
         style.textContent = `
-            /* The Brain v5.0.3 — native Torn typography and responsive composition. */
+            /* The Brain — native Torn typography and responsive composition. */
             #wes-stock-roi-box,
             #wes-stock-roi-box button,
             #wes-stock-roi-box input,
@@ -2376,7 +2526,18 @@ ${createBrainHeader()}
                                 type="text"
                                 placeholder="Deployable Capital"
                                 style="width:280px;max-width:90%;padding:6px;"><br>
+<div style="margin-top:14px;">
+    <div style="font-weight:700;margin-bottom:4px;">
+        Strategic Target
+    </div>
 
+    <div style="font-size:12px;opacity:.8;margin-bottom:6px;">
+        Choose one strategic-benefit stock you are intentionally accumulating.
+        Shares already owned toward this target will be protected from rebalance recommendations.
+    </div>
+
+    ${buildStrategicTargetControl()}
+</div>
                                     <div>
                                         <div>
                                             Strategic Sale Candidates
@@ -2466,6 +2627,7 @@ ${createBrainHeader()}
             localStorage.setItem(CASH_STORAGE, cash);
 
             saveStrategicSaleLimits();
+            saveStrategicTarget();
 
             updateApiKeyGate();
             out(hasUsableApiKey()
