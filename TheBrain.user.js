@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      6.1.0
+// @version      6.1.1
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -2559,7 +2559,7 @@ ${createBrainHeader()}
                                         </div>
                                     </div>
 
-                                    <button id="wes-stock-save">
+                                    <button class="torn-btn" id="wes-stock-save">
                                         Save Settings
                                     </button>
 
