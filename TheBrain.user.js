@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      6.1.1
+// @version      6.1.2
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -1619,6 +1619,12 @@
             const stableAnnualImprovement =
                 stableObjectiveAnnualIncome - currentObjectiveAnnualIncome;
 
+            const currentDailyIncome =
+                currentObjectiveAnnualIncome / 365;
+
+            const projectedDailyIncome =
+                stableObjectiveAnnualIncome / 365;
+
             console.log('The Brain — Annual Income Audit', {
                 currentObjectiveAnnualIncome,
                 stableObjectiveAnnualIncome,
@@ -1816,11 +1822,13 @@ Purchase cost:
 Capital remaining:
 <b>${money(stableIdeal.idealPortfolio.cashRemaining)}</b><br><br>
 
-Current annual income:
-<b>${money(currentObjectiveAnnualIncome)}</b>/year<br>
+Current income:
+<b>${money(currentDailyIncome)}</b>/day
+(${money(currentObjectiveAnnualIncome)}/year)<br>
 
-Projected annual income:
-<b>${money(stableObjectiveAnnualIncome)}</b>/year<br>
+Projected income:
+<b>${money(projectedDailyIncome)}</b>/day
+(${money(stableObjectiveAnnualIncome)}/year)<br>
 
 Annual improvement:
 <b>+${money(stableAnnualImprovement)}</b>/year
@@ -1882,7 +1890,11 @@ Annual improvement:
                     <b>${money(bestOverall.cost)}</b><br>
 
                     Expected ROI:
-                    <b>${pct(bestOverall.roi)}</b>
+<b>${pct(bestOverall.roi)}</b><br><br>
+
+Current portfolio income:
+<b>${money(currentDailyIncome)}</b>/day
+(${money(currentObjectiveAnnualIncome)}/year)
                 </div>
             </details>
         </div>
