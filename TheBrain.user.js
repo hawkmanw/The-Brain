@@ -5,7 +5,7 @@
 // @downloadURL https://raw.githubusercontent.com/hawkmanw/The-Brain/main/TheBrain.user.js
 // @homepageURL https://github.com/hawkmanw/The-Brain
 // @supportURL  https://github.com/hawkmanw/The-Brain/issues
-// @version      6.3.42
+// @version      6.3.43
 // @description A deterministic, evidence-driven stock portfolio advisor for Torn on desktop and TornPDA.
 // @author       Wesley Hawks
 // @license      MIT
@@ -3862,8 +3862,8 @@ ${createBrainHeader()}
                     const netProceeds=heldValue*(1-STOCK_SALE_FEE_RATE);
                     const currentBonusLocked=localStorage.getItem(TCI_BANK_ACTIVE_STORAGE)==='yes';
                     const currentBonusText=currentBonusLocked
-                        ? 'Your saved answer says TCI was active at this term’s start; its bonus is already reflected in projected bank profit.'
-                        : 'Your saved answer says TCI was NOT active at this term’s start; do not attribute current-term profit to this stock.';
+                        ? "Your saved answer says TCI was active at this term's start; its bonus is already reflected in projected bank profit."
+                        : "Your saved answer says TCI was NOT active at this term's start; do not attribute current-term profit to this stock.";
                     churnResult.innerHTML=`
                       ${simulationBanner}${collectBeforeSale}
                       <div><b>TCI owned — SELL evaluation (read only)</b></div>
@@ -4024,7 +4024,7 @@ ${createBrainHeader()}
                           <div>Break-even bank bonus: ${formatBankMoney(best.breakEvenBankBonus)}. Net advantage = projected bonus − delayed payouts − selling fees. No minimum profit threshold.</div>
                           <div>${favorable
                             ? `Remaining break-even cushion: ${formatBankMoney(best.cushion)} for combined adverse price movement and additional costs; this is a calculated amount, not a trade threshold.`
-                            : 'No positive break-even cushion at today’s valuations.'}</div>
+                            : "No positive break-even cushion at today's valuations."}</div>
                           <div>Estimated liquid cash left after repurchasing funding holdings: ${formatBankMoney(best.liquidAfterRepurchase)}. The funding stocks are modeled as repurchased one day after bank renewal.</div>
                           <div>This is a one-transaction, read-only comparison using current prices and a comparable next bank term. Stock prices and the offered bank rate may change before renewal. Strategic Holdings controls and ordinary BUY/SELL recommendations are unchanged.</div>
                         </details>`;
